@@ -1,0 +1,14 @@
+Para fazer o start do serviço
+
+"cluster": "<ARN CLUSTER NAME>",
+  "service_names": "<ARN CLUSTER SERVICE NAME>",
+  "service_desired_count": "1" --> para start
+
+
+  Para fazer o stop do serviço
+
+"cluster": "<ARN CLUSTER NAME>",
+  "service_names": "<ARN CLUSTER SERVICE NAME>",
+  "service_desired_count": "0" --> para stop
+
+  

@@ -1,0 +1,3 @@
+KEY = DEV-TEST
+REGION = us-eat-1 --> ou a região em que seus recursos de RDS foram criados.
+VALUE = Auto-Shutdown
