@@ -1,0 +1,7 @@
+# Configuração de crontab para o backup do banco de dados postgresql no ambiente de homologação
+
+SHELL=/usr/bin/ksh
+
+00 00  * * * root /home/dimastec1/monitora_projects/dimastec-postgresql-backup/scripts/exec-backup-schema-postgres.ksh > /home/dimastec1/monitora_projects/dimastec-postgresql-backup/logs/dimastec_backup_db_faceum_schemas_$(date +\%Y-\%m-\%d).log 2>&1 
+
+00 00  * * *  root /home/dimastec1/monitora_projects/dimastec-postgresql-backup/scripts/exec-backup-postgres.ksh > /home/dimastec1/monitora_projects/dimastec-postgresql-backup/logs/dimastec_backup_db_faceum_full_$(date +\%Y-\%m-\%d).log 2>&1
