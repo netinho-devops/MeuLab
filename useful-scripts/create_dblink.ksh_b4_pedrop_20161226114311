@@ -1,0 +1,64 @@
+#!/bin/ksh
+
+Tiger_rep=$1
+Env_Code=$2
+
+
+Env_Details=`
+     echo " set echo off head off verify off feed off pages 0 lin 120
+     SELECT DISTINCT username,PASSWORD,db_instance from dbconfig where  ENV_CODE='${Env_Code}' and username like '%DBO%';
+     exit;
+     " | sqlplus -s ${Tiger_rep} `
+
+
+export EnvProfile=`
+echo "  set echo off head off verify off feed off pages 0 lin 120
+        select distinct ENV_PROFILE
+        from DB_ENVIRONMENT_LIST
+        where env_code = '${Env_Code}';
+        exit;
+        " | sqlplus -s TIGER_REP_ABP/TIGER_REP_ABP@VV9TOOLS `
+
+if [[ ${EnvProfile} = "TEST_OWN_CFG" ]]
+
+then
+
+ABP_Env_Details=`
+     echo " set echo off head off verify off feed off pages 0 lin 120
+     SELECT DISTINCT username,PASSWORD,db_instance from dbconfig where  ENV_CODE='${Env_Code}' and username like '%APP%' and username not like '%APPO%';
+     exit;
+     " | sqlplus -s TIGER_REP_ABP/TIGER_REP_ABP@VV9TOOLS `
+
+else
+
+
+ABP_Env_Details=`
+     echo " set echo off head off verify off feed off pages 0 lin 120
+     SELECT DISTINCT username,PASSWORD,db_instance from dbconfig where  ENV_CODE='${Env_Code}' and username like '%DB%' and username not like '%DBO%' and username not in ('AIM_DBA');
+     exit;
+     " | sqlplus -s TIGER_REP_ABP/TIGER_REP_ABP@VV9TOOLS `
+
+fi
+
+if [[ ${ABP_Env_Details} != "" ]]
+then
+
+  USERNAME_DBO=`echo $Env_Details | awk '{FS=" "; print $1}'`
+  PASSWORD_DBO=`echo $Env_Details | awk '{FS=" "; print $2}'`
+  INSTANCE_DBO=`echo $Env_Details | awk '{FS=" "; print $3}'`
+
+  USERNAME_ABPAPP=`echo $ABP_Env_Details | awk '{FS=" "; print $1}'`
+  PASSWORD_ABPAPP=`echo $ABP_Env_Details | awk '{FS=" "; print $2}'`
+  INSTANCE_ABPAPP=`echo $ABP_Env_Details | awk '{FS=" "; print $3}'`
+
+
+
+echo "
+DROP DATABASE LINK ABPDL;
+CREATE DATABASE LINK ABPDL CONNECT TO ${USERNAME_ABPAPP} IDENTIFIED BY ${PASSWORD_ABPAPP} USING '${INSTANCE_ABPAPP}';
+create OR REPLACE synonym ECR9_REF_DEVICE_RATE for ${USERNAME_ABPAPP}.PC9_DEVICE_RATE@ABPDL;
+exit;
+" | sqlplus -s ${USERNAME_DBO}/${PASSWORD_DBO}@${INSTANCE_DBO}
+fi
+
+

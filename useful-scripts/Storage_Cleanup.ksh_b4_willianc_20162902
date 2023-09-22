@@ -1,0 +1,344 @@
+#!/bin/ksh -u
+##################################### INIT  SECTION ###############################
+# NAME        : Storage_Cleanup.ksh
+# DESCRIPTION : Find unused storage that created more than 5 days ago and removed it
+#
+# STEPS:      : 1. Get Input and validate it
+#               2. Find the EnSight DB the stoarge name of which each env is used
+#               3. Find the all storage name of giving product.
+#               6. Remove un used stoarge
+#               7. Remove it form Genesis DB
+#               8. Check FS
+#
+# USAGE       : Storage_Cleanup.ksh <Product Name> [-r]
+# DATE        : 17-AUG-15
+# Created By  : Eitan Corech
+# Edited By   : Pedro Pavan
+######################################################################################
+
+###################################
+####                           ####
+####       P A R A M S         ####
+####                           ####
+###################################
+DAYS_OLD_TO_DEL=20
+FS_ALERT=90
+FILE_USED_STORAGE=$(mktemp $0.XXXXXXXXX.tmp)
+TOOLS_DB=${TOOLS_DB_USER}/${TOOLS_DB_PASSWORD}@${TOOLS_DB_INSTANCE}
+
+###################################
+####                           ####
+####    F U N C T I O N S      ####
+####                           ####
+###################################
+function fs_check {
+	FS_USED=$(df -h /XPISTORAGE/ | tail -1 | awk '{ print $5 }' | tr -d '%')
+	FS_AVILABLE=$(df -h /XPISTORAGE/ | tail -1 | awk '{ print $4 }' | tr -d '%')
+
+	if [ ${FS_USED} -ge ${FS_ALERT} ]; then
+		echo -e "ALERT:\t/XPISTORAGE is using ${FS_USED}% with ${FS_AVILABLE} available"
+		# send email TODO
+	else
+		echo -e "INFO:\t/XPISTORAGE is using ${FS_USED}% with ${FS_AVILABLE} available"
+	fi
+}
+
+function ScriptExit {
+	STATUS=$1
+
+	print "\n*----------------------------------------------------------------------*"
+	if [ $STATUS -eq 0 ]
+	then
+	   print "      Cleanup Storage  -       Ended      - " `/bin/date  '+%d/%m/%Y %H:%M:%S'`
+	else
+	   print "      Cleanup Storage  - Ended with Error - " `/bin/date  '+%d/%m/%Y %H:%M:%S'`
+	fi
+	print "*----------------------------------------------------------------------*\n"
+
+	rm -f ${FILE_USED_STORAGE}
+	exit $STATUS
+}
+
+###################################
+####                           ####
+####          M A I N          ####
+####                           ####
+###################################
+if [ $# -eq 0 ]
+then
+    print "\n\tUSAGE : `basename $0` <Product Name> [-r]"
+    print "\tSample : `basename $0` CRM [-r]\n"
+    exit 1
+fi
+
+if [ "$2" == "-r" ]; then
+	IS_REPORT="Y"
+else
+	IS_REPORT="N"
+fi 
+
+PRODUCT=`echo $1 | tr '[:lower:]' '[:upper:]'`
+
+print "\n*--------------------------------------------------------------*"
+print "       Cleanup Storage - Started - " `/bin/date  '+%d/%m/%Y %H:%M:%S' `
+print "*--------------------------------------------------------------*\n"
+
+# -------------------------------------------------------------------------------------------------
+print "Step #1 - Check input"
+print "====================="
+
+CHECK_PRODUCT=`echo "set head off feed off pagesize 0
+                     select count(PRODUCT)
+                     from   ENSPOOL
+                     where  PRODUCT='${PRODUCT}';" | sqlplus -s $TOOLS_DB` 
+               
+if [ $CHECK_PRODUCT -eq 0 ]
+then
+    CHECK_PRODUCT=`echo "set head off feed off pagesize 0
+                   select distinct PRODUCT from ENSPOOL; " | sqlplus -s $TOOLS_DB` 
+
+    print "ERROR: Product ${PRODUCT} is not supported."
+    print "       Please use one of the following products: \c"
+    for PRD in $CHECK_PRODUCT
+    do
+       print "$PRD \c"
+    done 
+    print
+    ScriptExit 1
+fi
+print "Input is OK. \n"
+
+
+# -------------------------------------------------------------------------------------------------
+print "Step #2 - Find all used storage for the product in EnSight DB"
+print "============================================================="
+
+case ${PRODUCT} in
+     ABP)		STORAGE_PROPERTY="SoftwareStorageName" ;;
+     CRM)		STORAGE_PROPERTY="SoftwareVersion" ;;
+     OMS)		STORAGE_PROPERTY="SoftwareVersion" ;;
+     AMSS)		STORAGE_PROPERTY="SoftwareVersion" ;;
+     SLROMS)	STORAGE_PROPERTY="SoftwareVersion" ;;
+     SLRAMS)	STORAGE_PROPERTY="SoftwareVersion" ;;
+     WSF)		STORAGE_PROPERTY="SoftwareVersion" ;;
+     *)			echo "No info on ${PRODUCT} used storages" && ScriptExit 2 ;;
+esac
+
+print "
+set head off feed off pagesize 0
+select distinct VALUE 
+  from ENSPOOL
+ where PROPERTY = '${STORAGE_PROPERTY}' 
+   and PRODUCT  = '${PRODUCT}' order by VALUE;
+" | sqlplus -s $TOOLS_DB > ${FILE_USED_STORAGE}
+egrep '^ST_' ${FILE_USED_STORAGE}
+
+# -------------------------------------------------------------------------------------------------
+print "\nStep #3 - Find all storages (${PRODUCT}) which are at least $DAYS_OLD_TO_DEL days old"
+print "========================================================="
+printf "%-30s%-30s\n%-30s%-30s\n" "Storage Name" "Creation Date" "============" "=============" 
+ALL_STORAGE_TEMP=`ls -1d /XPISTORAGE/*/*/ST_* | grep "_${PRODUCT}_"`
+ALL_STORAGE=""
+
+for STRG in $ALL_STORAGE_TEMP
+do
+   GEN_STORAGE=$(echo ${STRG} | awk -F '/' '{ print $NF }')
+
+   # Check the storage creation date in Genesis DB
+   CREATION_DATE=`echo "set head off feed off pagesize 0
+                  select distinct max(SYS_CREATION_DATE)
+                  from            GNS_STORAGE_REGISTRATION
+                  where           STORAGE_NAME='${GEN_STORAGE}'; "              | sqlplus -s $TOOLS_DB` 
+
+   if [ "${CREATION_DATE}" = "" ]
+   then
+         CREATION_DATE="01-JAN-$(date +%y)"
+   fi
+
+   DIFF_DATE=`echo "set head off feed off pagesize 0
+              SELECT (SYSDATE - TO_DATE('$CREATION_DATE')) 
+              FROM    DUAL; "                                  | sqlplus -s $TOOLS_DB` 
+
+   if [ ${DIFF_DATE} -gt ${DAYS_OLD_TO_DEL} ]
+   then           
+         ALL_STORAGE=${ALL_STORAGE}" "${GEN_STORAGE}
+         printf "%-30s%-30s\n" ${GEN_STORAGE} ${CREATION_DATE}
+   fi 
+done
+
+
+# -------------------------------------------------------------------------------------------------
+print "\nStep #4 - Find all storages (${PRODUCT}) which are at least ${DAYS_OLD_TO_DEL} days old and not in use"
+print "=========================================================================="
+
+DEL_NUM=0
+
+for STRG in $ALL_STORAGE
+do
+    if [ $(grep -c ${STRG} ${FILE_USED_STORAGE}) -eq 0 ];  then         
+        STG_LOCATION=`ls -1d /XPISTORAGE/*/*/ST_* | grep ${STRG}`
+ 		STG_BUILD=$(echo $STRG | cut -d '_' -f 4 | tr -d '[A-Z]')
+   		STG_VERSION=$(echo $STRG | cut -d '_' -f 3 | tr -d '[A-Z]')
+		if [[ "${PRODUCT}" == "SLR"* ]]; then
+			STG_RELEASE="NA"
+		else
+			STG_RELEASE=$(cd /XPISTORAGE/BUILD_RELEASE/${PRODUCT}/v${STG_VERSION}/*/BN_${STG_BUILD}; pwd)
+		fi
+
+		if [ "${IS_REPORT}" == "Y" ]; then
+	         echo -e "Should be deleted (storage) : ${STG_LOCATION}"
+	         echo -e "Should be deleted (release) : ${STG_RELEASE}"
+			 echo -e "Should be deleted (database): delete GNS_STORAGE_REGISTRATION where STORAGE_NAME='${STRG}'\n"
+		 else
+			 echo "rm -rf ${STG_LOCATION}"
+			 if [[ "${PRODUCT}" != "SLR"* ]]; then
+				echo "rm -rf ${STG_RELEASE}"
+			 fi
+			 #sqlplus -s $TOOLS_DB << EOF
+			 #	delete GNS_STORAGE_REGISTRATION where STORAGE_NAME='$STRG';
+		 	 #	exit
+		 	 #EOF
+		fi
+		DEL_NUM=$((DEL_NUM+1))
+   fi
+done       
+
+if [ $DEL_NUM -eq 0 ]; then
+	print "There is no storage to remove. All storages are in use."
+fi
+
+
+# -------------------------------------------------------------------------------------------------
+print "Step #5 - Generate report"
+print "=========================================================================="
+HTML_FILE="xpistorage.html"
+
+fs_check
+ScriptExit 0
+
+
+# -------------------------------------------------------------------------------------------------
+#report_inuse()
+#{
+#	PARAM=$1
+#	
+#	case ${PARAM} in
+#		"YES") echo "class=\"normal\">YES"		;;
+#		 "NO") echo "class=\"critical\">NO"		;;
+#		    *) echo "class=\"warning\">NA"		;;
+#	esac
+#}
+#
+#report_days()
+#{
+#	PARAM=$1
+#
+#	if [ ${PARAM} -ge ${DAYS_OLD_TO_DEL} ]; then
+#		echo "class=\"warning\">${PARAM}"
+#	else
+#		echo "class=\"normal\">${PARAM}"
+#	fi
+#}
+#
+#print "
+#<html xmlns=\"http://www.w3.org/1999/xhtml\">
+#
+#<head>
+#        <meta http-equiv=\"refresh\" content=\"60\">
+#        <title>Storage Report</title>
+#</head>
+#
+#<body>
+#
+#    <style type=\"text/css\">
+#            body, p { font-family: verdana,arial,helvetica; font-size: 95%; color:#000000; }
+#
+#            th { font-family: verdana,arial,helvetica; color:#FFFFFF; background:#000099; font-size: 100%; border:1px solid #3399FF; padding:3px 7px 2px 7px; }
+#
+#            td { font-family: verdana,arial,helvetica; color:#000000; background:#eeeee0; font-size:1em; border:1px solid #3399FF; padding:3px 7px 2px 7px; }
+#
+#            .critical { background: #FF0033; text-align:center; }
+#            .warning { background: #FFFF33; text-align:center; }
+#            .normal { background: #99FF33; text-align:center; }
+#    </style>
+#
+#        <p>Last update $(date '+%d-%b-%Y %H:%M:%S')</p>
+#" > ${HTML_FILE}
+#
+#
+##for prd in ABP CRM OMS AMSS SLROMS SLRAMS WSF; do
+##done
+#
+#echo -e "
+#            <br>
+#            <h1>Product: ${PRODUCT}</h1>
+#            <hr>
+#            <br>
+#
+#            <table border=\"1\">
+#                    <tr>
+#                        <th>Storage</th>
+#                        <th>In use</th>
+#                        <th>Created</th>
+#                    </tr>" >> ${HTML_FILE}
+#
+#
+#for STRG in $(ls -1d /XPISTORAGE/*/*/ST_* | grep ${PRODUCT}); do
+#   GEN_STORAGE=$(echo ${STRG} | awk -F '/' '{ print $NF }')
+#
+#   # Check the stoarge creation date in Genesis DB
+#   CREATION_DATE=`echo "set head off feed off pagesize 0
+#                  select distinct max(SYS_CREATION_DATE)
+#                  from            GNS_STORAGE_REGISTRATION
+#                  where           STORAGE_NAME='${GEN_STORAGE}'; "              | sqlplus -s $TOOLS_DB`
+#
+#   if [ "${CREATION_DATE}" = "" ]
+#   then
+#         CREATION_DATE="01-JAN-$(date +%y)"
+#   fi
+#
+#   DIFF_DATE=`echo "set head off feed off pagesize 0
+#              SELECT TRUNC((SYSDATE - TO_DATE('$CREATION_DATE')))
+#              FROM    DUAL; " | sqlplus -s $TOOLS_DB | sed -e 's/^[ \t]*//'`
+#
+#	TMP_ALL_STORAGE="$(mktemp tmp.XXXXXXXXXX)"
+#	ls -1d /XPISTORAGE/*/*/ST_* | grep ${PRODUCT} | awk -F '/' '{ print $NF }' > ${TMP_ALL_STORAGE}
+#	for STRG in $(cat ${TMP_ALL_STORAGE})
+#	do
+#	    # Check if the Storage is in use and delete it form unix FS and Genesis DB
+#	    if [ "`echo $USED_STORAGE | grep $STRG`" = "" ]; then
+#			IN_USE="NO"
+#		else
+#			IN_USE="YES"
+#		fi
+#	done
+#	rm ${TMP_ALL_STORAGE}
+#
+#
+#   IN_USE=`echo "set head off feed off pagesize 0
+#                    select decode(count(VALUE), 0, 'NO', 'YES') as rst
+#                    from            ENSPOOL
+#                    where           PROPERTY = 'SoftwareStorageName'
+#                    and             PRODUCT  = '${PRODUCT}'
+#				    and             VALUE    = '${GEN_STORAGE}'
+#                    order by        VALUE;" | sqlplus -s $TOOLS_DB`
+#
+#   echo -e "
+#                <tr>
+#                    <td>${GEN_STORAGE}</td>
+#                    <td $(report_inuse ${IN_USE})</td>
+#                    <td $(report_days ${DIFF_DATE})</td>
+#                </tr>" >> ${HTML_FILE}
+#
+#done
+#
+#print "
+#		</table><br>
+#    </body>
+#</html>
+#" >> ${HTML_FILE}
+#
+#APACHE_PATH="${HOME}/Amc-${HOSTNAME}/tomcat/webapps/amc_${HOSTNAME}/reports"
+#cp -f ${HTML_FILE} ${APACHE_PATH}/
+#echo -e "HTML:\thttp://${HOST}:5000/amc_${HOST}/reports/xpistorage.html"
+#rm ${HTML_FILE}	

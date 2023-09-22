@@ -1,0 +1,318 @@
+#!/usr/bin/ksh
+
+#########################################
+# Author  : Rajkumar Nayeni
+# Purpose : To Load the Core HFs into Nexus
+# Usage   : LoadCoreHF.ksh <product_name> <PB_number> <HF_number>
+#		Examples:
+#		LoadCoreHF abp 6 30 
+#		LoadCoreHF crm 0 49 
+#		LoadCoreHF oms 0 33 
+#		LoadCoreHF amss 6 30
+#		LoadCoreHF omni 1 15				
+#########################################
+
+usage()
+{
+		echo " LoadCoreHF.ksh <product_name> <PB_number> <HF_number> "
+		echo " Examples:"
+		echo " LoadCoreHF abp 6 30 "
+		echo " LoadCoreHF crm 0 49 "
+		echo " LoadCoreHF oms 0 33 "
+		echo " LoadCoreHF amss 6 30 "
+		echo " LoadCoreHF omni 1 15 "
+}
+
+callJenkinsJob()
+{
+			echo ""
+			echo "#############################################################################"
+			echo ""
+			echo " Jenkins  Job started ....."
+			echo ""
+			echo "#############################################################################"
+			echo ""
+			PRODUCT=${1}
+			VERSION=${2}
+			PKGDIR=${3}
+			JENKINGSARG="-p Product=${PRODUCT} -p Version=${VERSION} -p PackagesDirectory=${PKGDIR} -p RunMode='deploy'"
+			echo " calling jenkins job ..."
+			echo " java -jar jenkins-cli.jar -s http://indlin3553:8070 build XPI-RT-Loader -r 20 -s -v ${JENKINGSARG} --username mb_ccviv --password 'Ccm4viv1!'"
+			ssh mb_ccviv@indlin3553 " source .login ; java -jar jenkins-cli.jar -s http://indlin3553:8070 build XPI-RT-Loader -r 20 -s -v ${JENKINGSARG} --username mb_ccviv --password 'Ccm4viv1!' "
+			
+			echo ""
+			echo "#############################################################################"
+			echo ""
+			echo " Jenkins  Job completed, please continue by checking  logs ....."
+			echo ""
+			echo "#############################################################################"
+			echo ""
+}
+ 
+copyABPPackages()
+{
+			for i in {0..${PB}}
+			do
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${i}/HotFix/9.3.${i}/64/RtPatchDir/*.jar .
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${i}/HotFix/9.3.${i}/64/ClientKitPatchDir/*.jar .
+			chmod 755 *
+			done
+			
+			for i in {1..${HF}}
+			do
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${PB}/HotFix/9.3.${PB}.${i}/64/RtPatchDir/*.jar .
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${PB}/HotFix/9.3.${PB}.${i}/64/ClientKitPatchDir/*.jar .
+			chmod 755 *
+			done
+			
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${PB}/HotFix/9.3.${PB}.${i}/64/XpiPatchDir/*.jar .
+			chmod 755 *
+			
+			scp apsdlv@indlin574:/APS900DLV/ABP/v900/SP${SP}/Linux/PatchBundle/PB${PB}/HotFix/9.3.${PB}.${i}/64/XdkPatchDir/*.jar .
+			chmod 755 *
+			
+			### Copying the extra ISM jars, which is specific to VIVO only
+			cp /XPISTORAGE/CORE/XPI_RT_LOADER/ABP/extraJars/* .
+}
+
+copyCRMPackages()
+{
+			scp apsdlv@indlin574:/APS2DLV/delivery/DC/DVCI_MASTER/900/CRM/SP${SP}/PB${PB}/AmdocsCRM9.${SP}.${PB}.0_release/XPI/CRM1_full_9.${SP}.${PB}.0.*.jar .
+			scp apsdlv@indlin574:/APS2DLV/delivery/DC/DVCI_MASTER/900/CRM/SP${SP}/PB${PB}/AmdocsCRM9.3_HF_${HF}/XDK/CRM1_full_xdk_*.jar .
+			scp apsdlv@indlin574:/APS2DLV/delivery/DC/DVCI_MASTER/900/CRM/SP${SP}/PB${PB}/AmdocsCRM9.3_HF_${HF}/XPI_Linux/XPI_Linux.tar.gz .
+			
+			isClientKitPresent='false'
+			
+			for i in {${HF}..1}
+      do
+				isClientExist='false'
+				ssh  apsdlv@indlin574 " if [ -f /APS2DLV/delivery/DC/DVCI_MASTER/900/CRM/SP${SP}/PB${PB}/AmdocsCRM9.3_HF_${HF}/clientKit/*.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS2DLV/delivery/DC/DVCI_MASTER/900/CRM/SP${SP}/PB${PB}/AmdocsCRM9.3_HF_${HF}/clientKit/*.jar .
+					isClientKitPresent='true'
+					break
+				fi 
+			done
+
+			if [  "${isClientKitPresent}" == "false" ]
+				then
+					cp /XPISTORAGE/CORE/XPI_RT_LOADER/CRM/extraJars/*.jar .
+				fi 	
+			
+			
+						
+			tar -zxvf XPI_Linux.tar.gz
+			mv XPI_LINUX/*.jar .
+			rm -r XPI_LINUX XPI_Linux.tar.gz
+			chmod 755 *
+			
+}
+
+copyOMSPackages()
+{
+#			scp apsdlv@indlin574:/APS/delivery/dlvoms/v900/SP${SP}/PB${PB}/HF${HF}/RT/*.jar .
+#			scp apsdlv@indlin574:/APS/delivery/dlvoms/v900/SP${SP}/PB${PB}/HF${HF}/XDK/*.jar .
+			scp apsdlv@illin1132:/APS/delivery/dlvoms/v900/SP${SP}/PB${PB}/HF${HF}/RT/*.jar .
+			scp apsdlv@illin1132:/APS/delivery/dlvoms/v900/SP${SP}/PB${PB}/HF${HF}/XDK/*.jar .
+			chmod 755 *
+}
+
+copyAMSSPackages()
+{
+			scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/HF0/RT/MCSS/*.jar . 
+			
+			for i in {${HF}..1}
+      do
+				isClientExist='false'
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/UXFramework1-general*.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/UXFramework1-general*.jar .
+					break
+				fi 
+				
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/UXFramework1-general*.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/UXFramework1-general*.jar .
+					break
+				fi     
+        
+      done
+
+		COUNT_CLIENT=$(ls -1 UXFramework1-general-9.3.0.0.*.jar | wc -l)
+
+		if [ ${COUNT_CLIENT} -eq 0 ]; then
+			echo "UXFramework1-general jar file was not found!"
+			exit 9
+		fi
+
+		if [ ${COUNT_CLIENT} -gt 1 ]; then
+			LATEST_CLIENT=$(ls -1 UXFramework1-general-9.3.0.0.*.jar | sort | tail -n 1)
+			echo "Removing duplicated jars"
+			ls UXFramework1-general* | grep -v "${LATEST_CLIENT}" | xargs rm -vf
+		fi
+     
+     for i in {${HF}..1}
+      do
+				isClientExist='false'
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/AMSS_IMPL.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/AMSS_IMPL.jar .
+					break
+				fi 
+				
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/AMSS_IMPL.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/AMSS_IMPL.jar .
+					break
+				fi     
+        
+      done
+      
+      for i in {${HF}..1}
+      do
+				isClientExist='false'
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/AMSS_DBA.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/MCSS/AMSS_DBA.jar .
+					break
+				fi 
+				
+				ssh  apsdlv@indlin574 " if [ -f /APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/AMSS_DBA.jar ] ; then ; echo 'true' ; else ; echo 'false' ; fi" | read isClientExist
+				if [  "${isClientExist}" == "true" ]
+				then
+					scp apsdlv@indlin574:/APS/delivery/dlvamss/v900/SP${SP}/PatchBundles/PB${PB}/Incremental_HF${i}/RT/AMSS_DBA.jar .
+					break
+				fi     
+        
+      done
+		
+			chmod 755 *
+			
+}
+
+
+copyOMNIPackages()
+{
+			scp apsdlv@indlin574:/APS/delivery/OCE/v900/SP${SP}/PB${PB}/HF${HF}/RT/*/*.jar .
+			scp apsdlv@indlin574:/APS/delivery/OCE/v900/SP${SP}/PB${PB}/HF${HF}/RT/*/amdocs-installer.tar .
+			chmod 755 *
+}
+
+copyPackages()
+{
+		echo ""
+		echo "#############################################################################"
+		echo ""
+		echo " Copy Pacakages started ....."
+		echo ""
+		echo "#############################################################################"
+		echo ""
+		mkdir -p ${HFDIR}
+		cd ${HFDIR}
+		
+		
+		case ${product} in
+		    abp)
+		          copyABPPackages
+		            ;;
+		    amss)
+		          copyAMSSPackages
+		            ;;
+		    oms)
+		          copyOMSPackages   
+		            ;;
+		    crm)
+		          copyCRMPackages    
+		            ;;
+		    omni-channel)
+		          copyOMNIPackages
+		            ;;
+		    *)
+		          usage 
+		            ;;
+		esac
+		
+		echo ""
+		echo "#############################################################################"
+		echo ""
+		echo " Copy Pacakages completed ....."
+		echo ""
+		echo "#############################################################################"
+		echo ""
+}
+
+####### Main ###########
+
+Product=${1}
+PB=${2}
+HF=${3}
+SP=3
+
+PRODUCT=`echo ${Product} | tr 'a-z' 'A-Z' `
+product=`echo ${Product} | tr 'A-Z' 'a-z' `
+
+if [ "${product}" == "omni" ]
+then
+	product="omni-channel"
+fi
+
+freefs=`df -k /XPISTORAGE | tail -1 | awk {'print $4'}`
+freefs=` expr $freefs / 1024 `
+freefs=` expr $freefs / 1024 `
+
+if [ $freefs -lt 30 ]
+then
+		echo " you have FS is more than 30 GB, please clean some FS and retry .... "
+		exit 1
+fi
+
+if [ "${PRODUCT}"  != "ABP" -a "${PRODUCT}"  != "CRM" -a "${PRODUCT}"  != "OMS" -a "${PRODUCT}"  != "AMSS" -a "${PRODUCT}"  != "OMNI" ]
+then
+	usage
+	exit 1
+fi			
+
+HFDIR="/XPISTORAGE/CORE/XPI_RT_LOADER/${PRODUCT}/9.${SP}.${PB}.${HF}"
+
+if [ -d ${HFDIR} ]
+then
+		echo " ${HFDIR} already present, please cross check is it already loaded into Nexus ?"
+		echo " Do you want to continue ... Y/N "
+		read ans
+		
+		echo " Thanks for your confirmation .."
+		if [ "${ans}" == "Y" -o "${ans}" == "y" ]
+		then
+			echo " We are continueing .... "
+			echo " Do you want to continue without copy packages once again ? Y/N"
+			read ans
+			echo " Thanks for your confirmation .."
+			if [ "${ans}" != "Y" -a "${ans}" != "y" ]
+			then
+				echo " We are continueing .... by moveing back "
+				mv ${HFDIR} ${HFDIR}_$$
+				copyPackages
+			else
+				echo " We are continueing ... without download the packages once again "		
+			fi
+			
+			callJenkinsJob ${product} 9.${SP}.${PB}.${HF} ${HFDIR}
+		else
+			echo " We are Aborting ...., as you are not given answer Y "
+			exit
+		fi
+else
+		copyPackages
+		callJenkinsJob ${product} 9.${SP}.${PB}.${HF} ${HFDIR}
+fi
+
+
+
+
+

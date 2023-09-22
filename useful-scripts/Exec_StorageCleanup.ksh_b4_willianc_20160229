@@ -1,0 +1,71 @@
+#!/bin/ksh -u
+##################################### INIT  SECTION ##################################
+# NAME        : Exec_StorageCleanup.ksh
+# DESCRIPTION : Calls Storage_Cleanup.ksh for each product and send output via email
+#
+# USAGE       : Exec_StorageCleanup.ksh
+# DATE        : 23-FEB-16
+# Created By  : Willian Costa
+######################################################################################
+
+DL_FROM='vivtools@indlin3362'
+DL_TO='willian.costa@amdocs.com'
+DL_CC='willian.costa@amdocs.com'
+DL_BCC=''
+MAIL_SUBJECT='Storage Cleanup Report'
+TIME_STAMP=`date "+%d %b %Y"`
+MAIL_BODY=''
+MAIL_FL=StorageCleanupReport.txt
+SC_SCRIPT=/vivnas/viv/vivtools/Scripts/filesystem/Storage_Cleanup.ksh
+
+touch $MAIL_FL
+for p in ABP CRM OMS AMSS WSF
+do
+	cd /vivnas/viv/vivtools/Scripts/filesystem/
+	touch $p.txt
+	./Storage_Cleanup.ksh $p -r >> $p.txt
+done
+
+for f in ABP CRM OMS AMSS WSF
+do
+	ffl="$f.txt"
+	print "=======================
+$f
+=======================" >> $MAIL_FL
+	
+	cat $ffl | sed -n -e '/Step #4/,/Step #5/ p' | sed '1,2d; $d;' | grep -i 'v3000' >> $MAIL_FL
+	COUNT=$(grep -i 'Should' $ffl | grep -ic 'v3000')
+	COUNT=$(($COUNT/3))
+	print "
+	$COUNT  STORAGE(s) to remove.
+
+	" >> $MAIL_FL
+	rm -f $ffl
+done
+
+FS=`df -h |grep XPISTORAGE |awk '{print $6}'`
+FS_USED=`df -h |grep XPISTORAGE |awk '{print $5}'`
+FS_AVAIL=`df -h |grep XPISTORAGE |awk '{print $4}'`
+
+/usr/lib/sendmail -t <<EOF
+To: ${DL_TO}
+Cc: ${DL_CC}
+From: ${DL_FROM}
+Subject: ${MAIL_SUBJECT} ${TIME_STAMP}
+
+PFB Storage Cleanup Report
+
+=======================
+STORAGE NFS USAGE
+=======================
+${FS} is using ${FS_USED} with ${FS_AVAIL} available.
+
+* BELOW STORAGES ARE OLDER THAN 20 DAYS AND ARE NOT IN USE.
+
+$(cat ${MAIL_FL})
+
+Regards,
+VIVO Infra Team
+
+EOF
+rm -f $MAIL_FL

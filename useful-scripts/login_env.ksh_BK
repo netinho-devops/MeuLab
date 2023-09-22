@@ -1,0 +1,20 @@
+#!/bin/ksh  
+ACC=bss$1$2
+FLAG=$3;
+machine_list='illin1391 illin1393 illin1493 illin1360 illin1336 illin1397 illin1576 illin1577 illin1392 illin1579 illin1394 illin1580 illin1581 illin1578 illin2115 illin2116 illin1084 illin1396 illin1805'
+#machine_list='illin1391 illin1393 illin1493 illin1360 illin1336 illin1397 illin1576 illin1577 illin1392 illin1579 illin1394 illin1580 illin1581 illin1578 illin2115 illin2116 illin1084 illin1396'
+for j in $machine_list; do
+        env_list=`ssh -q tooladm@$j -n "cat /etc/passwd | cut -d: -f1 | grep bss | egrep $ACC"`
+
+      for ename in $env_list; do
+            if [[ $ename = $ACC ]]; then
+  		if [[ "$FLAG" = "SHOW" ]] then
+                echo $ename@$j
+		else 
+
+	         ssh -X $ename@$j
+                #exit
+		fi
+            fi 
+        done
+done

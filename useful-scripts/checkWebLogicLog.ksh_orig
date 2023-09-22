@@ -1,0 +1,162 @@
+#!/usr/bin/ksh
+#######################################################################
+# Author : Rajkumar Nayeni Eitan Corech
+# The Script purpose to check whether WL Server came up without exception
+# or not
+#######################################################################
+
+
+checkExceptions()
+{
+		cd ${logLocation}
+		
+		grep -ni "${startupMessage}" $logFile | tail -1 | cut -d':' -f1 | read firstline
+		grep -ni "${endMessage}"     $logFile | tail -1 | cut -d':' -f1 | read lastline
+		grep    "${endMessage}"     $logFile | tail -1 | cut -d'<' -f2 | cut -d">" -f1 | read cameuptime
+
+		if [ "${firstline}" = "" ]
+		then
+		   echo "$LogFile file is overridden for ${serverName} servepigr. No information about the startup time."
+		   exit 1
+		fi
+		
+		if [ "${lastline}" = "" ] || [ "${firstline}" -gt "${lastline}" ]  
+		then
+		 		echo "Server still coming up..............."
+		fi
+		 
+		#awk "FNR>=${firstline} && FNR<=${lastline}" $logFile | grep "${ErrorMsg}" | wc -l | read exceptioncount
+		#sed -n ${firstline},${lastline}p $logFile | grep "${ErrorMsg}" | wc -l | read exceptioncount
+		# Pedro Pavan - 28/Mar/16
+		exceptioncount=$(sed -n ${firstline},${lastline}p $logFile | grep -c "${ErrorMsg}")
+		if [ "${exceptioncount}" = 0 ] 
+		then
+		   echo  "Server ${serverName} came up fine at ${cameuptime} without exceptions"
+			 exit 0
+		else
+			 echo "Error Messages:"
+			 echo ""
+			 #echo `awk "FNR>=${firstline} && FNR<=${lastline}" $logFile | grep "${ErrorMsg}" | perl -p -e 's/\n/<br>/g' `
+			 #echo `sed -n ${firstline},${lastline}p $logFile | grep "${ErrorMsg}" | perl -p -e 's/\n/<br>/g' `
+			 # Pedro Pavan - 28/Mar/16
+			 sed -n ${firstline},${lastline}p $logFile | grep "${ErrorMsg}" | perl -p -e 's/\n/<br>/g'
+
+			 echo "<br>"
+		   echo "Server ${serverName} came up with error at ${cameuptime}, please check logs........"
+			 exit 1
+		fi
+}
+
+
+
+###############################################################################
+#
+#	MAIN 
+#
+###############################################################################
+
+if [ $# -ne 1 ]
+then
+    print "\n\tUSAGE : `basename $0` <PRODUCT>\n"
+    print "\tSample : `basename $0`  ABP\n"
+    exit 1
+fi
+
+PRODUCT=$1
+
+logLocation=""
+scriptLocation=""
+pingScript=""
+unixUserName="${USER}"
+startupMessage='Server state changed to STARTING'
+endMessage='RUNNING mode'
+
+case $PRODUCT in 
+	enb)
+              logLocation=${HOME}/JEE/ABPProduct/logs/ABP-FULL/ABPServer
+              scriptLocation=${HOME}/JEE/ABPProduct/scripts/ABP-FULL
+              pingScript=pingABPServer.sh
+              logFile=`ls -1 ${logLocation}/weblogic.*.log | tail -1`
+              ErrorMsg="Caused by"
+              serverName=ABP
+              ;;
+        crm)
+              logLocation=${HOME}/JEE/CRMProduct/logs/CRMDomain/CRMServer
+              scriptLocation=${HOME}/JEE/CRMProduct/scripts/CRMDomain/CRMServer
+              pingScript=pingCRMServer.sh
+              logFile=`ls -1 ${logLocation}/weblogic.*.log | tail -1`
+              ErrorMsg="Caused by"
+              serverName=CRM
+              ;;
+        oms)
+              logLocation=${HOME}/JEE/OMS/logs/OmsDomain/OmsServer
+              scriptLocation=${HOME}/JEE/OMS/scripts/OmsDomain/OmsServer
+              pingScript=pingOmsServer.sh
+              logFile=`ls -1 ${logLocation}/weblogic*.log | tail -1`
+              ErrorMsg="Caused by"
+              serverName=OMS
+              ;;
+        amss)
+              logLocation=${HOME}/JEE/AMSSProduct/logs/AMSSFullDomain/AMSSFullServer
+              scriptLocation=${HOME}/JEE/AMSSProduct/scripts/AMSSFullDomain/AMSSFullServer
+              pingScript=pingAMSSFullServer.sh
+              logFile=`ls -1 ${logLocation}/weblogic.*.log | tail -1`
+              ErrorMsg="Caused by"
+              serverName=AMSS
+              ;;
+	uif)
+		logLocation=${HOME}/JEE/CRMProduct/logs/SmartClientDomain/SmartClientServer
+		scriptLocation=${HOME}/JEE/CRMProduct/scripts/SmartClientDomain/SmartClientServer
+		pingScript=pingSmartClientServer.sh
+		logFile=`ls -1 ${logLocation}/weblogic* | tail -1`
+		ErrorMsg="Caused by"
+		serverName=UIF
+		;;
+	uxf)
+                logLocation=${HOME}/JEE/LightSaber/logs/LightSaberDomain
+                scriptLocation=${HOME}/JEE/LightSaber/scripts/LightSaberDomain
+                pingScript=pingLightSaberServer.sh
+                logFile=`ls -1 ${logLocation}/weblogic*.log| tail -1`
+                ErrorMsg="Caused by"
+                serverName=UXF
+		;;
+	slroms)
+                logLocation=${HOME}/JEE/SolrProduct/logs/SolrDomain_SolrServer/SolrServer
+                scriptLocation=${HOME}/JEE/SolrProduct/scripts/SolrDomain_SolrServer/SolrServer
+                pingScript=pingSolrServer.sh
+                logFile=`ls -1 ${logLocation}/weblogic*.log| tail -1`
+                ErrorMsg="Caused by"
+                serverName=SLROMS
+		;;
+	slrams)
+                logLocation=${HOME}/JEE/SolrProduct/logs/SolrDomain_SolrServer/SolrServer
+                scriptLocation=${HOME}/JEE/SolrProduct/scripts/SolrDomain_SolrServer/SolrServer
+                pingScript=pingSolrServer.sh
+                logFile=`ls -1 ${logLocation}/weblogic*.log| tail -1`
+                ErrorMsg="Caused by"
+                serverName=SLRAMS
+		;;
+     *)
+              echo "Seems like you didn't execute the script from right location"
+           		echo "This script is for checking WebLogic startup logs of ABP, CRM ASAP, API and AMSS only and must be executed from the env"
+              exit 1
+              ;;
+
+esac
+
+cd ${scriptLocation}
+
+if [ `${scriptLocation}/${pingScript} | cut -d" " -f1` = "DOWN" ]
+then
+      echo "Server is DOWN, Please make it up and Run it again"
+      exit 1
+fi
+
+if [ ! -f $logFile ]
+then
+        echo "${logLocation}/$logFile is not present "
+        exit 1
+fi
+
+checkExceptions 
+
